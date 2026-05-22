@@ -20,13 +20,15 @@
         .success { color: #2ecc71; }
         .error { color: #e74c3c; }
         
-        /* Table Layout Styling */
         .table-card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); width: 100%; max-width: 500px; }
         .table-wrapper { overflow-x: auto; max-height: 300px; }
         table { width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; }
         th { position: sticky; top: 0; background: #34495e; color: white; padding: 10px; font-weight: 600; }
         td { padding: 10px; border-bottom: 1px solid #eeecf0; color: #2c3e50; }
-        tr:hover { background-color: #f9f9f9; }
+        
+        /* Pending style indicates data is saving to Google in background */
+        tr.pending-sync { opacity: 0.5; font-style: italic; background-color: #fcfcfc; }
+        
         .loading-text { text-align: center; color: #7f8c8d; font-style: italic; padding: 10px; }
         .version-badge { text-align: right; font-size: 11px; color: #b2bec3; margin-top: 15px; font-weight: 500; }
     </style>
@@ -67,33 +69,22 @@
             </tbody>
         </table>
     </div>
-    <div class="version-badge">App Version: 1.1.0</div>
+    <div class="version-badge">App Version: 1.2.0 (Instant UI)</div>
 </div>
 
 <script>
-    const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxk7GR2Xm5Jla-VXUFn3GNg8f0_mAlM_v4I1zTL8xx8avZYrHkvzwialIt0jQ2ag9wPgw/exec";
+    const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzF-2ywhcreVRFhnaV81RaWlNf7thEUAZ9uO9ZKhIVRWPSAWhMWjsMz077rwZ0D3p7Zmw/exec";
 
-    // --- FUNCTION: FETCH AND DISPLAY DATA FROM SHEET ---
     async function loadSpreadsheetData() {
         const tableBody = document.getElementById('data-table-body');
-        
         try {
-            // Fetch rows using the custom action parameter
             const response = await fetch(`${WEB_APP_URL}?action=read`);
             const result = await response.json();
             
             if (result.status === "success" && result.data.length > 0) {
-                tableBody.innerHTML = ""; // Clear loader
-                
-                // Reverse array to display the newest entries at the top
+                tableBody.innerHTML = ""; 
                 result.data.reverse().forEach(row => {
-                    const tr = document.createElement('tr');
-                    tr.innerHTML = `
-                        <td>${row.timestamp}</td>
-                        <td>${row.item}</td>
-                        <td>$${Number(row.amount).toFixed(2)}</td>
-                    `;
-                    tableBody.appendChild(tr);
+                    appendTableRow(row.timestamp, row.item, row.amount, false);
                 });
             } else {
                 tableBody.innerHTML = `<tr><td colspan="3" class="loading-text">No data entries found in sheet.</td></tr>`;
@@ -104,7 +95,27 @@
         }
     }
 
-    // --- FORM WRITE LOGIC ---
+    function appendTableRow(timestamp, item, amount, isPending = false) {
+        const tableBody = document.getElementById('data-table-body');
+        
+        // Remove empty placeholder row if it exists
+        const emptyRow = tableBody.querySelector('.loading-text');
+        if (emptyRow) tableBody.innerHTML = "";
+
+        const tr = document.createElement('tr');
+        if (isPending) tr.className = "pending-sync";
+        
+        tr.innerHTML = `
+            <td>${timestamp}</td>
+            <td>${item}</td>
+            <td>$${Number(amount).toFixed(2)}</td>
+        `;
+        
+        // Insert new entries at the absolute top of the listing layout
+        tableBody.insertBefore(tr, tableBody.firstChild);
+        return tr;
+    }
+
     document.getElementById('finance-form').addEventListener('submit', async function(e) {
         e.preventDefault(); 
         
@@ -113,17 +124,23 @@
         const submitBtn = document.getElementById('submit-btn');
         const statusMsg = document.getElementById('status-message');
 
-        const payload = {
-            item: itemInput.value,
-            amount: parseFloat(amountInput.value)
-        };
+        const tempItem = itemInput.value;
+        const tempAmount = parseFloat(amountInput.value);
+        const tempTimestamp = new Date().toLocaleString();
 
-        submitBtn.disabled = true;
-        submitBtn.innerText = "Saving data...";
-        statusMsg.className = "";
-        statusMsg.innerText = "";
+        // 1. OPTIMISTIC UPDATE: Add row to UI instantly before sending anything over the network
+        const pendingRowElement = appendTableRow(tempTimestamp, tempItem, tempAmount, true);
+
+        // Clear input boxes instantly so user can enter another expense immediately
+        itemInput.value = "";
+        amountInput.value = "";
+        statusMsg.className = "success";
+        statusMsg.innerText = "Logged instantly (syncing to cloud...)";
+
+        const payload = { item: tempItem, amount: tempAmount };
 
         try {
+            // 2. Background Sync Execution
             await fetch(WEB_APP_URL, {
                 method: 'POST',
                 mode: 'no-cors', 
@@ -131,26 +148,18 @@
                 body: JSON.stringify(payload)
             });
 
-            statusMsg.className = "success";
-            statusMsg.innerText = "Saved successfully!";
-            
-            itemInput.value = "";
-            amountInput.value = "";
-
-            // Refresh the table right after saving so the new row displays immediately
-            setTimeout(loadSpreadsheetData, 1500);
+            // 3. Sync finished: Remove the fading pending state from the row element
+            pendingRowElement.className = "";
+            statusMsg.innerText = "Cloud sync completed successfully.";
 
         } catch (error) {
             statusMsg.className = "error";
-            statusMsg.innerText = "Failed to save. Try again.";
+            statusMsg.innerText = "Cloud sync failed. Row remains local.";
+            pendingRowElement.style.color = "#e74c3c"; // Turn row red if it completely dropped
             console.error(error);
-        } finally {
-            submitBtn.disabled = false;
-            submitBtn.innerText = "Save to Google Sheet";
         }
     });
 
-    // Run the data load automatically when the website finishes booting up
     window.addEventListener('DOMContentLoaded', loadSpreadsheetData);
 </script>
 
