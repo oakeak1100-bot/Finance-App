@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Finance Tracker</title>
+    <style>
+        * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body { background-color: #f4f7f6; display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px; }
+        .card { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); width: 100%; max-width: 500px; margin-bottom: 20px; }
+        h2 { margin-top: 0; color: #2c3e50; text-align: center; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; color: #7f8c8d; font-weight: 600; font-size: 14px; }
+        input[type="text"], input[type="number"] { width: 100%; padding: 12px; border: 1px solid #dcdde1; border-radius: 6px; font-size: 16px; outline: none; transition: border 0.2s; }
+        input:focus { border-color: #3498db; }
+        button { width: 100%; padding: 14px; background-color: #2ecc71; border: none; border-radius: 6px; color: white; font-size: 16px; font-weight: bold; cursor: pointer; transition: background 0.2s; }
+        button:hover { background-color: #27ae60; }
+        button:disabled { background-color: #bdc3c7; cursor: not-allowed; }
+        #status-message { text-align: center; margin-top: 15px; font-weight: 500; font-size: 14px; }
+        .success { color: #2ecc71; }
+        .error { color: #e74c3c; }
+        
+        /* Table Layout Styling */
+        .table-card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); width: 100%; max-width: 500px; }
+        .table-wrapper { overflow-x: auto; max-height: 300px; }
+        table { width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; }
+        th { position: sticky; top: 0; background: #34495e; color: white; padding: 10px; font-weight: 600; }
+        td { padding: 10px; border-bottom: 1px solid #eeecf0; color: #2c3e50; }
+        tr:hover { background-color: #f9f9f9; }
+        .loading-text { text-align: center; color: #7f8c8d; font-style: italic; padding: 10px; }
+        .version-badge { text-align: right; font-size: 11px; color: #b2bec3; margin-top: 15px; font-weight: 500; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2>Log Expense</h2>
+    <form id="finance-form">
+        <div class="form-group">
+            <label for="item">Item / Description</label>
+            <input type="text" id="item" placeholder="e.g., Coffee, Rent" required>
+        </div>
+        <div class="form-group">
+            <label for="amount">Amount ($)</label>
+            <input type="number" id="amount" step="0.01" placeholder="0.00" required>
+        </div>
+        <button type="submit" id="submit-btn">Save to Google Sheet</button>
+    </form>
+    <div id="status-message"></div>
+</div>
+
+<div class="table-card">
+    <h2>Saved Records</h2>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Item</th>
+                    <th>Amount</th>
+                </tr>
+            </thead>
+            <tbody id="data-table-body">
+                <tr>
+                    <td colspan="3" class="loading-text">Loading transaction records...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="version-badge">App Version: 1.1.0</div>
+</div>
+
+<script>
+    const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxk7GR2Xm5Jla-VXUFn3GNg8f0_mAlM_v4I1zTL8xx8avZYrHkvzwialIt0jQ2ag9wPgw/exec";
+
+    // --- FUNCTION: FETCH AND DISPLAY DATA FROM SHEET ---
+    async function loadSpreadsheetData() {
+        const tableBody = document.getElementById('data-table-body');
+        
+        try {
+            // Fetch rows using the custom action parameter
+            const response = await fetch(`${WEB_APP_URL}?action=read`);
+            const result = await response.json();
+            
+            if (result.status === "success" && result.data.length > 0) {
+                tableBody.innerHTML = ""; // Clear loader
+                
+                // Reverse array to display the newest entries at the top
+                result.data.reverse().forEach(row => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${row.timestamp}</td>
+                        <td>${row.item}</td>
+                        <td>$${Number(row.amount).toFixed(2)}</td>
+                    `;
+                    tableBody.appendChild(tr);
+                });
+            } else {
+                tableBody.innerHTML = `<tr><td colspan="3" class="loading-text">No data entries found in sheet.</td></tr>`;
+            }
+        } catch (error) {
+            tableBody.innerHTML = `<tr><td colspan="3" class="loading-text" style="color: #e74c3c;">Failed to load data from sheet.</td></tr>`;
+            console.error("Read Error:", error);
+        }
+    }
+
+    // --- FORM WRITE LOGIC ---
+    document.getElementById('finance-form').addEventListener('submit', async function(e) {
+        e.preventDefault(); 
+        
+        const itemInput = document.getElementById('item');
+        const amountInput = document.getElementById('amount');
+        const submitBtn = document.getElementById('submit-btn');
+        const statusMsg = document.getElementById('status-message');
+
+        const payload = {
+            item: itemInput.value,
+            amount: parseFloat(amountInput.value)
+        };
+
+        submitBtn.disabled = true;
+        submitBtn.innerText = "Saving data...";
+        statusMsg.className = "";
+        statusMsg.innerText = "";
+
+        try {
+            await fetch(WEB_APP_URL, {
+                method: 'POST',
+                mode: 'no-cors', 
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            statusMsg.className = "success";
+            statusMsg.innerText = "Saved successfully!";
+            
+            itemInput.value = "";
+            amountInput.value = "";
+
+            // Refresh the table right after saving so the new row displays immediately
+            setTimeout(loadSpreadsheetData, 1500);
+
+        } catch (error) {
+            statusMsg.className = "error";
+            statusMsg.innerText = "Failed to save. Try again.";
+            console.error(error);
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.innerText = "Save to Google Sheet";
+        }
+    });
+
+    // Run the data load automatically when the website finishes booting up
+    window.addEventListener('DOMContentLoaded', loadSpreadsheetData);
+</script>
+
+</body>
+</html>
