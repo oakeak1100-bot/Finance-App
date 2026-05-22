@@ -1,85 +1,16 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Finance Tracker</title>
-    <style>
-        * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        body { background-color: #f4f7f6; display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px; }
-        .card { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); width: 100%; max-width: 500px; margin-bottom: 20px; }
-        h2 { margin-top: 0; color: #2c3e50; text-align: center; }
-        .form-group { margin-bottom: 20px; }
-        label { display: block; margin-bottom: 8px; color: #7f8c8d; font-weight: 600; font-size: 14px; }
-        input[type="text"], input[type="number"] { width: 100%; padding: 12px; border: 1px solid #dcdde1; border-radius: 6px; font-size: 16px; outline: none; transition: border 0.2s; }
-        input:focus { border-color: #3498db; }
-        button { width: 100%; padding: 14px; background-color: #2ecc71; border: none; border-radius: 6px; color: white; font-size: 16px; font-weight: bold; cursor: pointer; transition: background 0.2s; }
-        button:hover { background-color: #27ae60; }
-        button:disabled { background-color: #bdc3c7; cursor: not-allowed; }
-        #status-message { text-align: center; margin-top: 15px; font-weight: 500; font-size: 14px; }
-        .success { color: #2ecc71; }
-        .error { color: #e74c3c; }
-        
-        .table-card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); width: 100%; max-width: 500px; }
-        .table-wrapper { overflow-x: auto; max-height: 300px; }
-        table { width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; }
-        th { position: sticky; top: 0; background: #34495e; color: white; padding: 10px; font-weight: 600; }
-        td { padding: 10px; border-bottom: 1px solid #eeecf0; color: #2c3e50; }
-        
-        /* Pending style indicates data is saving to Google in background */
-        tr.pending-sync { opacity: 0.5; font-style: italic; background-color: #fcfcfc; }
-        
-        .loading-text { text-align: center; color: #7f8c8d; font-style: italic; padding: 10px; }
-        .version-badge { text-align: right; font-size: 11px; color: #b2bec3; margin-top: 15px; font-weight: 500; }
-    </style>
-</head>
-<body>
-
-<div class="card">
-    <h2>Log Expense</h2>
-    <form id="finance-form">
-        <div class="form-group">
-            <label for="item">Item / Description</label>
-            <input type="text" id="item" placeholder="e.g., Coffee, Rent" required>
-        </div>
-        <div class="form-group">
-            <label for="amount">Amount ($)</label>
-            <input type="number" id="amount" step="0.01" placeholder="0.00" required>
-        </div>
-        <button type="submit" id="submit-btn">Save to Google Sheet</button>
-    </form>
-    <div id="status-message"></div>
-</div>
-
-<div class="table-card">
-    <h2>Saved Records</h2>
-    <div class="table-wrapper">
-        <table>
-            <thead>
-                <tr>
-                    <th>Date</th>
-                    <th>Item</th>
-                    <th>Amount</th>
-                </tr>
-            </thead>
-            <tbody id="data-table-body">
-                <tr>
-                    <td colspan="3" class="loading-text">Loading transaction records...</td>
-                </tr>
-            </tbody>
-        </table>
-    </div>
-    <div class="version-badge">App Version: 1.2.0 (Instant UI)</div>
-</div>
-
 <script>
     const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzF-2ywhcreVRFhnaV81RaWlNf7thEUAZ9uO9ZKhIVRWPSAWhMWjsMz077rwZ0D3p7Zmw/exec";
 
+    // --- UPDATED LOAD LOGIC ---
     async function loadSpreadsheetData() {
         const tableBody = document.getElementById('data-table-body');
         try {
+            // Fetch the spreadsheet data as an unblocked text stream
             const response = await fetch(`${WEB_APP_URL}?action=read`);
-            const result = await response.json();
+            const textData = await response.text();
+            
+            // Convert the raw text stream back into a structural JSON object locally
+            const result = JSON.parse(textData);
             
             if (result.status === "success" && result.data.length > 0) {
                 tableBody.innerHTML = ""; 
@@ -97,8 +28,6 @@
 
     function appendTableRow(timestamp, item, amount, isPending = false) {
         const tableBody = document.getElementById('data-table-body');
-        
-        // Remove empty placeholder row if it exists
         const emptyRow = tableBody.querySelector('.loading-text');
         if (emptyRow) tableBody.innerHTML = "";
 
@@ -111,7 +40,6 @@
             <td>$${Number(amount).toFixed(2)}</td>
         `;
         
-        // Insert new entries at the absolute top of the listing layout
         tableBody.insertBefore(tr, tableBody.firstChild);
         return tr;
     }
@@ -128,10 +56,8 @@
         const tempAmount = parseFloat(amountInput.value);
         const tempTimestamp = new Date().toLocaleString();
 
-        // 1. OPTIMISTIC UPDATE: Add row to UI instantly before sending anything over the network
         const pendingRowElement = appendTableRow(tempTimestamp, tempItem, tempAmount, true);
 
-        // Clear input boxes instantly so user can enter another expense immediately
         itemInput.value = "";
         amountInput.value = "";
         statusMsg.className = "success";
@@ -140,7 +66,6 @@
         const payload = { item: tempItem, amount: tempAmount };
 
         try {
-            // 2. Background Sync Execution
             await fetch(WEB_APP_URL, {
                 method: 'POST',
                 mode: 'no-cors', 
@@ -148,20 +73,16 @@
                 body: JSON.stringify(payload)
             });
 
-            // 3. Sync finished: Remove the fading pending state from the row element
             pendingRowElement.className = "";
             statusMsg.innerText = "Cloud sync completed successfully.";
 
         } catch (error) {
             statusMsg.className = "error";
             statusMsg.innerText = "Cloud sync failed. Row remains local.";
-            pendingRowElement.style.color = "#e74c3c"; // Turn row red if it completely dropped
+            pendingRowElement.style.color = "#e74c3c"; 
             console.error(error);
         }
     });
 
     window.addEventListener('DOMContentLoaded', loadSpreadsheetData);
 </script>
-
-</body>
-</html>
